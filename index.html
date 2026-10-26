@@ -136,6 +136,8 @@ th .dot{display:inline-block;margin-right:4px;vertical-align:-1px}
 .item .t div:first-child{font-weight:500}
 .item .t div+div{font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .item .a{font-weight:600}
+.item .t .note{color:var(--ink-2);font-size:13px;white-space:normal;overflow:visible;display:flex;gap:5px;align-items:flex-start;margin-top:2px}
+.item .t .note svg{width:13px;height:13px;flex:none;margin-top:3px}
 .empty{text-align:center;color:var(--muted);padding:40px 16px}
 /* Belege */
 .clip{display:inline-block;width:13px;height:13px;vertical-align:-2px;margin-left:4px;color:var(--ink-2)}
@@ -304,11 +306,12 @@ function demoApi(action, p){
   if (!demoRows) demoRows = DEMO.map((r,i)=>({row:i+3, ts:parseDe(r[0]).getTime(), cat:r[1], amt:r[2], person:'', note:''}));
   const e = p && p.entry;
   if (action==='receipt') return Promise.resolve({ok:true, dataUrl: demoReceipts[p.id]});
+  if (action==='attach'){ const r = demoRows.find(x=>x.row===e.row); const id='demo'+Math.random().toString(36).slice(2); demoReceipts[id]=e.image; if(r) r.rc=id; return Promise.resolve({ok:true}); }
   const withRc = (x, old) => { const o = Object.assign({}, x); delete o.image; delete o.removeReceipt;
     if (x.image){ const id = 'demo'+Math.random().toString(36).slice(2); demoReceipts[id] = x.image; o.rc = id; }
     else if (x.removeReceipt) o.rc = ''; else o.rc = old ? old.rc : ''; return o; };
-  if (action==='add') demoRows.push(Object.assign(withRc(e), {row: 3 + demoRows.length}));
-  if (action==='update'){ const r = demoRows.find(x=>x.row===e.row); if(r) Object.assign(r, withRc(e, r)); }
+  if (action==='add'){ const row = 3 + demoRows.length; demoRows.push(Object.assign(withRc(e), {row})); return Promise.resolve({ok:true, row, ts:e.ts}); }
+  if (action==='update'){ const r = demoRows.find(x=>x.row===e.row); if(r) Object.assign(r, withRc(e, r)); return Promise.resolve({ok:true, row:e.row, ts:e.ts}); }
   if (action==='delete'){ demoRows = demoRows.filter(x=>x.row!==e.row); }
   return Promise.resolve({ok:true, rows: demoRows.map(r=>Object.assign({},r)), persons:S.persons, categories:DEFAULT_CATS});
 }
@@ -697,7 +700,7 @@ function renderList(){
   if (!rows.length){ el.innerHTML = '<div class="empty">Keine Buchungen gefunden.</div>'; return; }
   const item = r => `<button class="item" data-row="${r.row}" data-ts="${r.ts}">
       <span class="ic" style="background:${catColor(r.cat)}">${esc(catInitial(r.cat))}</span>
-      <span class="t"><div>${esc(r.cat)}${r.rc ? CLIP : ''}</div><div>${[S.sort==='hi'||S.sort==='lo' ? fmtDate(r.d) : fmtTime(r.d), r.person, r.note, r.ro ? 'Formular' : ''].filter(Boolean).map(esc).join(' · ')}</div></span>
+      <span class="t"><div>${esc(r.cat)}${r.rc ? CLIP : ''}</div><div>${[S.sort==='hi'||S.sort==='lo' ? fmtDate(r.d) : fmtTime(r.d), r.person, r.ro ? 'Formular' : ''].filter(Boolean).map(esc).join(' · ')}</div>${r.note ? `<div class="note">${NOTE}${esc(r.note)}</div>` : ''}</span>
       <span class="a num">${eur(r.amt)}</span></button>`;
   const total = `<div class="dayhead"><span>${rows.length} Buchungen</span><span class="num">${eur(sum(rows))}</span></div>`;
   if (S.sort==='new' || S.sort==='old'){
@@ -777,7 +780,7 @@ function openEntry(r){
   }
   const isNew = !r;
   const now = new Date();
-  const e = r ? Object.assign({}, r) : { cat: store.get('lastCat', S.categories[0]), amt:'', person: S.settings.me || '', note:'', d: now };
+  const e = r ? Object.assign({}, r) : { cat: store.get('lastCat', S.categories[0]), amt:'', person: '', note:'', d: now };
   openSheet(`<h3>${isNew?'Ausgabe eintragen':'Buchung bearbeiten'}</h3>
     <div class="field"><div class="amount"><input id="amt" inputmode="decimal" placeholder="0,00" autocomplete="off" value="${e.amt!==''?String(e.amt.toFixed(2)).replace('.',','):''}"><span>€</span></div></div>
     <div class="field"><label>Kategorie</label><div class="catgrid">${S.categories.map(c=>`<button class="catbtn ${c===e.cat?'on':''}" data-c="${esc(c)}"><i class="dot" style="background:${catColor(c)}"></i>${esc(c)}</button>`).join('')}</div></div>
@@ -850,12 +853,22 @@ function mutate(action, entry, msg){
   if (action==='update'){ const r = S.rows.find(x=>x.row===entry.row && x.ts===entry.origTs); if (r) Object.assign(r, local); }
   if (action==='delete'){ S.rows = S.rows.filter(x=>!(x.row===entry.row && x.ts===entry.origTs)); }
   closeSheet(); render();
-  if (entry.image) toast('Wird mit Beleg gespeichert …');
-  api(action, {entry}).then(()=>{ toast(msg); return load(true); })
-    .catch(err => { toast('Nicht gespeichert: '+err.message); load(true); });
+  const image = entry.image; delete entry.image;
+  toast(image ? 'Wird gespeichert …' : msg);
+  api(action, {entry})
+    .then(res => {
+      if (action==='delete' || !image) return;
+      toast('Beleg wird hochgeladen …', 20000);
+      const ref = { row: res.row, origTs: entry.ts, ts: entry.ts, cat: entry.cat, amt: entry.amt, image };
+      return api('attach', {entry: ref}).then(() => toast(msg + ', Beleg angehängt'))
+        .catch(err => toast('Buchung gespeichert, aber Beleg nicht: ' + errText(err), 9000));
+    })
+    .catch(err => toast('Nicht gespeichert: ' + errText(err), 9000))
+    .finally(() => load(true).catch(()=>{}));
 }
 
 /* ---------- Belege ---------- */
+const NOTE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="Notiz"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
 const CLIP = '<svg class="clip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="mit Beleg"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 const GALLERY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>';
 const CAMERA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
@@ -888,8 +901,6 @@ function showImage(src){
 function openSettings(){
   const s = S.settings;
   openSheet(`<h3>Einstellungen</h3>
-    <div class="field"><label>Ich bin</label>${S.persons.length?'':'<p class="hint">Erst nach dem Verbinden verfügbar.</p>'}<div class="seg" id="me">${S.persons.map(p=>`<button data-p="${esc(p)}" class="${p===s.me?'on':''}">${esc(p)}</button>`).join('')}</div>
-      <p class="hint">Wird beim Eintragen auf diesem Handy vorausgewählt.</p></div>
     ${IS_GAS ? '' : `
     <div class="field"><label>Web-App-Adresse (aus Apps Script)</label><input class="input" id="url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(s.url)}"></div>
     <div class="field"><label>Passwort</label><input class="input" id="token" type="password" value="${esc(s.token)}"></div>`}
@@ -897,7 +908,6 @@ function openSettings(){
     <div class="actions"><button class="btn" id="saveS">Speichern</button></div>
     <p class="hint">${S.mode==='demo'?'Vorschau-Modus':IS_GAS?'Verbunden über Google Apps Script':'Version 1.0'}</p>`, b => {
     let me = s.me, theme = store.get('theme','auto');
-    b.querySelectorAll('#me [data-p]').forEach(o => o.onclick = () => { me=o.dataset.p; b.querySelectorAll('#me [data-p]').forEach(x=>x.classList.toggle('on',x===o)); });
     b.querySelectorAll('#theme [data-t]').forEach(o => o.onclick = () => { theme=o.dataset.t; b.querySelectorAll('#theme [data-t]').forEach(x=>x.classList.toggle('on',x===o)); applyTheme(theme); });
     b.querySelector('#saveS').onclick = () => {
       const url = b.querySelector('#url'), token = b.querySelector('#token');
@@ -935,7 +945,11 @@ function deltaBadge(cur, prev){
   return `<span class="delta ${up?'up':'down'}" title="${up?'mehr':'weniger'} als im Vormonat">${up?'▲':'▼'} ${Math.abs(d).toLocaleString('de-DE',{maximumFractionDigits:0})} %</span>`;
 }
 let toastT;
-function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2600); }
+function toast(msg, ms){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'), ms||2600); }
+function errText(err){
+  const m = String(err && err.message || err);
+  return /failed to fetch|networkerror|load failed/i.test(m) ? 'Keine Verbindung zum Server. Bitte Internet prüfen und erneut versuchen.' : m;
+}
 
 /* ============ Start ============ */
 document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => { S.tab=b.dataset.tab; store.set('tab',S.tab); window.scrollTo(0,0); render(); });
