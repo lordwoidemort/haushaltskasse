@@ -405,6 +405,7 @@ function render(){
   if (!S.rows.length && S.mode==='setup'){ v.innerHTML = setupHtml(); bindSetup(); return; }
   if (S.tab==='overview') renderOverview(v);
   else if (S.tab==='months') renderMonths(v);
+  else if (document.activeElement && document.activeElement.id==='q' && $('#list')) renderList();  // Suchfeld nicht neu aufbauen, sonst schließt die Tastatur
   else renderEntries(v);
 }
 function renderStatus(){
@@ -906,7 +907,7 @@ function openSettings(){
     <div class="field"><label>Passwort</label><input class="input" id="token" type="password" value="${esc(s.token)}"></div>`}
     <div class="field"><label>Darstellung</label><div class="seg" id="theme">${[['auto','System'],['light','Hell'],['dark','Dunkel']].map(([k,l])=>`<button data-t="${k}" class="${(store.get('theme','auto'))===k?'on':''}">${l}</button>`).join('')}</div></div>
     <div class="actions"><button class="btn" id="saveS">Speichern</button></div>
-    <p class="hint">${S.mode==='demo'?'Vorschau-Modus':IS_GAS?'Verbunden über Google Apps Script':'Version 1.0'}</p>`, b => {
+    <p class="hint">${S.mode==='demo'?'Vorschau-Modus':IS_GAS?'Verbunden über Google Apps Script':'Version 7 (28.10.2026)'}</p>`, b => {
     let me = s.me, theme = store.get('theme','auto');
     b.querySelectorAll('#theme [data-t]').forEach(o => o.onclick = () => { theme=o.dataset.t; b.querySelectorAll('#theme [data-t]').forEach(x=>x.classList.toggle('on',x===o)); applyTheme(theme); });
     b.querySelector('#saveS').onclick = () => {
