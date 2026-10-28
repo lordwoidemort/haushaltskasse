@@ -956,7 +956,19 @@ document.querySelectorAll('nav.tabs button').forEach(b => b.onclick = () => { S.
 $('#fab').onclick = () => openEntry(null);
 $('#settingsBtn').onclick = openSettings;
 $('#refreshBtn').onclick = () => { if (S.mode!=='setup') load().catch(()=>{}); };
-let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(render, 150); });
+// Neu zeichnen nur, wenn sich die Breite ändert (z. B. Handy drehen).
+// Die Bildschirmtastatur ändert nur die Höhe und darf das Suchfeld nicht neu aufbauen.
+let rz, lastW = window.innerWidth;
+window.addEventListener('resize', () => {
+  clearTimeout(rz);
+  rz = setTimeout(() => {
+    if (window.innerWidth === lastW) return;
+    lastW = window.innerWidth;
+    const a = document.activeElement;
+    if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+    render();
+  }, 150);
+});
 applyTheme(store.get('theme','auto'));
 
 (function start(){
