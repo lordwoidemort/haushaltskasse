@@ -125,6 +125,9 @@ th .dot{display:inline-block;margin-right:4px;vertical-align:-1px}
 /* Buchungen */
 .search{display:flex;gap:8px;margin-top:12px}
 .search input,.search select{height:42px;border-radius:12px;border:1px solid var(--border);background:var(--surface);padding:0 12px}
+.rcfilter{flex:none;height:42px;border-radius:12px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);display:inline-flex;align-items:center;gap:5px;padding:0 10px;font-size:13px;font-weight:500}
+.rcfilter svg{width:16px;height:16px}
+.rcfilter.on{background:var(--ink);border-color:var(--ink);color:var(--surface)}
 .search input{flex:1;min-width:0}
 .dayhead{display:flex;justify-content:space-between;font-size:13px;color:var(--ink-2);font-weight:600;padding:16px 4px 6px}
 .list{background:var(--surface);border-radius:16px;border:1px solid var(--border);overflow:hidden;box-shadow:var(--shadow)}
@@ -260,7 +263,7 @@ const S = {
   rows: [], persons: [], categories: DEFAULT_CATS.slice(),   // Namen kommen erst nach dem Verbinden vom Server
   tab: store.get('tab','overview'),
   f: Object.assign({ range:'thisMonth', from:'', to:'', cats:[], person:'all' }, store.get('filter',{})),
-  q: '', sort: 'new',
+  q: '', sort: 'new', onlyRc: store.get('onlyRc', false),
   settings: Object.assign({ url:'', token:'', me:'' }, store.get('settings',{})),
   loading: false, lastSync: null, mode: 'live'
 };
@@ -678,7 +681,8 @@ function bindMonthStrip(v){
 function renderEntries(v){
   v.innerHTML = monthStripHtml() + `
     <div class="search">
-      <input id="q" type="search" placeholder="Suchen: Kategorie, Notiz, Betrag" value="${esc(S.q)}">
+      <input id="q" type="search" placeholder="Suchen …" aria-label="Suchen nach Kategorie, Notiz, Person oder Betrag" value="${esc(S.q)}">
+      <button id="rcOnly" class="rcfilter ${S.onlyRc?'on':''}" aria-pressed="${S.onlyRc}" title="Nur Buchungen mit Rechnung">${CLIP_BTN}Rechnung</button>
       <select id="sort" aria-label="Sortierung">
         <option value="new">Neueste</option><option value="old">Älteste</option>
         <option value="hi">Betrag ↓</option><option value="lo">Betrag ↑</option>
@@ -688,22 +692,23 @@ function renderEntries(v){
   $('#sort').value = S.sort;
   $('#q').oninput = e => { S.q = e.target.value; renderList(); };
   $('#sort').onchange = e => { S.sort = e.target.value; renderList(); };
+  $('#rcOnly').onclick = e => { S.onlyRc = !S.onlyRc; store.set('onlyRc', S.onlyRc); e.currentTarget.classList.toggle('on', S.onlyRc); e.currentTarget.setAttribute('aria-pressed', S.onlyRc); renderList(); };
   renderList();
 }
 function renderList(){
   const q = S.q.trim().toLowerCase();
-  let rows = filtered().filter(r => !q ||
+  let rows = filtered().filter(r => !S.onlyRc || r.rc).filter(r => !q ||
     r.cat.toLowerCase().includes(q) || (r.note||'').toLowerCase().includes(q) || (r.person||'').toLowerCase().includes(q) ||
     r.amt.toFixed(2).replace('.',',').includes(q.replace('.',',')));
   const cmp = { new:(a,b)=>b.ts-a.ts, old:(a,b)=>a.ts-b.ts, hi:(a,b)=>b.amt-a.amt, lo:(a,b)=>a.amt-b.amt }[S.sort];
   rows.sort(cmp);
   const el = $('#list');
-  if (!rows.length){ el.innerHTML = '<div class="empty">Keine Buchungen gefunden.</div>'; return; }
+  if (!rows.length){ el.innerHTML = `<div class="empty">${S.onlyRc ? 'Keine Buchungen mit Rechnung in diesem Zeitraum.' : 'Keine Buchungen gefunden.'}</div>`; return; }
   const item = r => `<button class="item" data-row="${r.row}" data-ts="${r.ts}">
       <span class="ic" style="background:${catColor(r.cat)}">${esc(catInitial(r.cat))}</span>
       <span class="t"><div>${esc(r.cat)}${r.rc ? CLIP : ''}</div><div>${[S.sort==='hi'||S.sort==='lo' ? fmtDate(r.d) : fmtTime(r.d), r.person, r.ro ? 'Formular' : ''].filter(Boolean).map(esc).join(' · ')}</div>${r.note ? `<div class="note">${NOTE}${esc(r.note)}</div>` : ''}</span>
       <span class="a num">${eur(r.amt)}</span></button>`;
-  const total = `<div class="dayhead"><span>${rows.length} Buchungen</span><span class="num">${eur(sum(rows))}</span></div>`;
+  const total = `<div class="dayhead"><span>${rows.length} ${rows.length===1?'Buchung':'Buchungen'}${S.onlyRc ? ' mit Rechnung' : ''}</span><span class="num">${eur(sum(rows))}</span></div>`;
   if (S.sort==='new' || S.sort==='old'){
     const groups = []; let cur = null;
     rows.forEach(r => { const k = ymd(r.d); if(!cur || cur.k!==k){ cur={k, d:r.d, items:[]}; groups.push(cur);} cur.items.push(r); });
@@ -870,6 +875,7 @@ function mutate(action, entry, msg){
 
 /* ---------- Belege ---------- */
 const NOTE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="Notiz"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+const CLIP_BTN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 const CLIP = '<svg class="clip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-label="mit Beleg"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>';
 const GALLERY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>';
 const CAMERA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>';
@@ -907,7 +913,7 @@ function openSettings(){
     <div class="field"><label>Passwort</label><input class="input" id="token" type="password" value="${esc(s.token)}"></div>`}
     <div class="field"><label>Darstellung</label><div class="seg" id="theme">${[['auto','System'],['light','Hell'],['dark','Dunkel']].map(([k,l])=>`<button data-t="${k}" class="${(store.get('theme','auto'))===k?'on':''}">${l}</button>`).join('')}</div></div>
     <div class="actions"><button class="btn" id="saveS">Speichern</button></div>
-    <p class="hint">${S.mode==='demo'?'Vorschau-Modus':IS_GAS?'Verbunden über Google Apps Script':'Version 7 (28.10.2026)'}</p>`, b => {
+    <p class="hint">${S.mode==='demo'?'Vorschau-Modus':IS_GAS?'Verbunden über Google Apps Script':'Version 8 (28.10.2026)'}</p>`, b => {
     let me = s.me, theme = store.get('theme','auto');
     b.querySelectorAll('#theme [data-t]').forEach(o => o.onclick = () => { theme=o.dataset.t; b.querySelectorAll('#theme [data-t]').forEach(x=>x.classList.toggle('on',x===o)); applyTheme(theme); });
     b.querySelector('#saveS').onclick = () => {

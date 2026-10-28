@@ -1,5 +1,5 @@
 // Hält die App-Oberfläche offline verfügbar. Daten kommen immer frisch aus dem Sheet.
-const CACHE = 'haushaltskasse-v7';
+const CACHE = 'haushaltskasse-v8';
 const SHELL = ['./', 'index.html', 'manifest.json', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())));
